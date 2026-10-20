@@ -41,16 +41,6 @@ boardEl.append(top, bottom);
 
 // ---------- rendering ----------
 
-/** Pale when empty, darker as seeds pile up; saturates at FULL seeds. */
-const FULL = 12;
-function colorFor(seeds: number): { background: string; color: string } {
-    const t = Math.min(seeds, FULL) / FULL;
-    return {
-        background: `hsl(30 70% ${95 - t * 55}%)`,
-        color: t > 0.5 ? "white" : "black",
-    };
-}
-
 /** Show seed counts; only pits in `playable` are clickable. */
 function show(board: number[], playable: number[] = []) {
     board.forEach((seeds, i) => {
@@ -58,7 +48,7 @@ function show(board: number[], playable: number[] = []) {
         cell.textContent = String(seeds);
         if (cell instanceof HTMLButtonElement) {
             cell.disabled = !playable.includes(i);
-            Object.assign(cell.style, colorFor(seeds));
+            cell.style.background = `hsl(30 70% ${Math.max(40, 95 - seeds * 5)}%)`;
         }
     });
 }
