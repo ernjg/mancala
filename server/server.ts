@@ -70,7 +70,10 @@ export class Game extends DurableObject<Env> {
 
     leave(ws: WebSocket, seat: Player | null) {
         if (!this.sockets.delete(ws)) return;
-        if (seat !== null && this.seats[seat] === ws) this.seats[seat] = null;
+        if (seat !== null && this.seats[seat] === ws) {
+            this.seats[seat] = null;
+            this.state = initialState();  // a player left: start over
+        }
         this.broadcastState();
     }
 
