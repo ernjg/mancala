@@ -14,5 +14,5 @@
     "isolatedModules": true,
     "skipLibCheck": true
   },
-  "include": ["main.ts", "../rules/rules.ts"]
+  "include": ["main.ts", "../rules/rules.ts", "../server/protocol.ts"]
 }
