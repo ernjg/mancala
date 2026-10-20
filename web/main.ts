@@ -2,7 +2,7 @@ import { applyMove, describeStep, initialState, isGameOver, legalMoves, other, p
 import type { ClientMessage, ServerMessage } from "../server/protocol.ts";
 
 const STEP_MS = 350;
-const WS_URL = `ws://${location.hostname}:8765`;
+const WS_URL: string = import.meta.env.VITE_WS_URL ?? `ws://${location.hostname}:8765`;
 const gameId = new URLSearchParams(location.search).get("game");
 
 const boardEl = document.querySelector("#board")!;

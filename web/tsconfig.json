@@ -4,7 +4,7 @@
     "moduleResolution": "bundler",
     "target": "esnext",
     "lib": ["esnext", "dom"],
-    "types": [],
+    "types": ["vite/client"],
     "noEmit": true,
     "allowImportingTsExtensions": true,
     "strict": true,
