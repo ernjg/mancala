@@ -6,11 +6,22 @@ export interface Env {
     GAMES: DurableObjectNamespace<Game>;
 }
 
+// Guards. Browsers always send Origin on a WebSocket handshake, so this keeps
+// other sites from using the worker as a free backend. The rest bound memory
+// and CPU per game so a bad actor can only hurt their own game.
+const ALLOWED_ORIGINS = ["https://ejgomez.com", "http://localhost:5173"];
+const GAME_ID = /^[a-z0-9]{1,32}$/i;
+const MAX_SOCKETS = 8;
+const MAX_MESSAGE = 100;
+
 /** Entry point: hands each WebSocket to the Durable Object for its game id. */
 export default {
     async fetch(request: Request, env: Env): Promise<Response> {
+        if (!ALLOWED_ORIGINS.includes(request.headers.get("Origin") ?? "")) {
+            return new Response("forbidden", { status: 403 });
+        }
         const id = new URL(request.url).pathname.slice(1);
-        if (!id) return new Response("usage: wss://<host>/<game id>", { status: 400 });
+        if (!GAME_ID.test(id)) return new Response("usage: wss://<host>/<game id>", { status: 400 });
         if (request.headers.get("Upgrade") !== "websocket") {
             return new Response("expected a WebSocket", { status: 426 });
         }
@@ -26,6 +37,7 @@ export class Game extends DurableObject<Env> {
     sockets = new Set<WebSocket>();                              // players plus spectators
 
     override async fetch(_request: Request): Promise<Response> {
+        if (this.sockets.size >= MAX_SOCKETS) return new Response("game is full", { status: 503 });
         const pair = new WebSocketPair();
         const [client, server] = [pair[0], pair[1]];
         server.accept();
@@ -52,6 +64,7 @@ export class Game extends DurableObject<Env> {
 
     onMessage(seat: Player | null, data: unknown) {
         if (seat === null) return;  // spectators can't act
+        if (typeof data !== "string" || data.length > MAX_MESSAGE) return;
         let msg: ClientMessage;
         try { msg = JSON.parse(String(data)); } catch { return; }
 
