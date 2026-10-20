@@ -1,12 +1,14 @@
-import { applyMove, describeStep, initialState, isGameOver, legalMoves, pitsOf, type State, type Step } from "../rules/rules.ts";
+import { applyMove, describeStep, initialState, isGameOver, legalMoves, pitsOf, winnerOf, type State, type Step } from "../rules/rules.ts";
 
 const STEP_MS = 350;
 const boardEl = document.querySelector("#board")!;
 const messageEl = document.querySelector("#message")!;
 const controlsEl = document.querySelector("#controls")!;
+const winsEl = document.querySelector("#wins")!;
 
 let state: State = initialState();
 let busy = false;
+const wins: [number, number] = [0, 0];
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -59,6 +61,7 @@ function describe(step: Step): string | undefined {
 
 function refresh() {
     show(state.board, legalMoves(state));
+    winsEl.textContent = `wins: player 0 ${wins[0]}, player 1 ${wins[1]}`;
     controlsEl.replaceChildren();
     if (isGameOver(state)) {
         const b = document.createElement("button");
@@ -82,6 +85,10 @@ async function play(pit: number) {
     }
     state = result.state;
     busy = false;
+    if (isGameOver(state)) {
+        const winner = winnerOf(state);
+        if (winner !== null) wins[winner]++;
+    }
     refresh();
 }
 
