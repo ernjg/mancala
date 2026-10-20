@@ -2,7 +2,7 @@ import { applyMove, describeStep, initialState, isGameOver, legalMoves, other, p
 import type { ClientMessage, ServerMessage } from "../server/protocol.ts";
 
 const STEP_MS = 350;
-const WS_URL: string = import.meta.env.VITE_WS_URL ?? `ws://${location.hostname}:8765`;
+const WS_URL: string = import.meta.env.VITE_WS_URL ?? "ws://localhost:8787";  // wrangler dev
 const gameId = new URLSearchParams(location.search).get("game");
 
 const boardEl = document.querySelector("#board")!;
@@ -156,8 +156,7 @@ async function handle(msg: ServerMessage) {
 }
 
 function connect(game: string) {
-    socket = new WebSocket(WS_URL);
-    socket.onopen = () => send({ type: "join", game });
+    socket = new WebSocket(`${WS_URL}/${game}`);
     // Messages are handled one at a time so a snapshot never lands mid-animation.
     let queue = Promise.resolve();
     socket.onmessage = e => { queue = queue.then(() => handle(JSON.parse(e.data))); };

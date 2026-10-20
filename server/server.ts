@@ -1,76 +1,86 @@
-import { WebSocketServer, type WebSocket } from "ws";
+import { DurableObject } from "cloudflare:workers";
 import { applyMove, initialState, isGameOver, legalMoves, winnerOf, type Player, type State } from "../rules/rules.ts";
 import type { ClientMessage, ServerMessage } from "./protocol.ts";
 
-type Game = {
-    state: State;
-    wins: [number, number];
-    seats: [WebSocket | null, WebSocket | null];  // who is player 0 and 1
-    sockets: Set<WebSocket>;                      // players plus spectators
+export interface Env {
+    GAMES: DurableObjectNamespace<Game>;
+}
+
+/** Entry point: hands each WebSocket to the Durable Object for its game id. */
+export default {
+    async fetch(request: Request, env: Env): Promise<Response> {
+        const id = new URL(request.url).pathname.slice(1);
+        if (!id) return new Response("usage: wss://<host>/<game id>", { status: 400 });
+        if (request.headers.get("Upgrade") !== "websocket") {
+            return new Response("expected a WebSocket", { status: 426 });
+        }
+        return env.GAMES.get(env.GAMES.idFromName(id)).fetch(request);
+    },
 };
 
-const games = new Map<string, Game>();
-const port = Number(process.env.PORT ?? 8765);
-const wss = new WebSocketServer({ port });
+/** One game: its state, the two seats, and everyone connected to it. */
+export class Game extends DurableObject<Env> {
+    state: State = initialState();
+    wins: [number, number] = [0, 0];
+    seats: [WebSocket | null, WebSocket | null] = [null, null];  // who is player 0 and 1
+    sockets = new Set<WebSocket>();                              // players plus spectators
 
-function send(ws: WebSocket, msg: ServerMessage) {
-    ws.send(JSON.stringify(msg));
-}
+    override async fetch(_request: Request): Promise<Response> {
+        const pair = new WebSocketPair();
+        const [client, server] = [pair[0], pair[1]];
+        server.accept();
+        this.join(server);
+        return new Response(null, { status: 101, webSocket: client });
+    }
 
-function broadcast(game: Game, msg: ServerMessage) {
-    for (const ws of game.sockets) send(ws, msg);
-}
+    join(ws: WebSocket) {
+        this.sockets.add(ws);
+        const seat: Player | null = this.seats[0] === null ? 0 : this.seats[1] === null ? 1 : null;
+        if (seat !== null) this.seats[seat] = ws;
+        ws.addEventListener("message", e => this.onMessage(seat, e.data));
+        ws.addEventListener("close", () => this.leave(ws, seat));
+        ws.addEventListener("error", () => this.leave(ws, seat));
+        this.send(ws, { type: "joined", seat });
+        this.broadcastState();
+    }
 
-function broadcastState(game: Game) {
-    const players = game.seats.filter(Boolean).length;
-    broadcast(game, { type: "state", state: game.state, wins: game.wins, players });
-}
+    leave(ws: WebSocket, seat: Player | null) {
+        if (!this.sockets.delete(ws)) return;
+        if (seat !== null && this.seats[seat] === ws) this.seats[seat] = null;
+        this.broadcastState();
+    }
 
-wss.on("connection", ws => {
-    let id: string | undefined;
-    let game: Game | undefined;
-    let seat: Player | null = null;
-
-    ws.on("message", raw => {
+    onMessage(seat: Player | null, data: unknown) {
+        if (seat === null) return;  // spectators can't act
         let msg: ClientMessage;
-        try { msg = JSON.parse(String(raw)); } catch { return; }
-
-        if (msg.type === "join" && !game) {
-            id = msg.game;
-            game = games.get(id) ?? { state: initialState(), wins: [0, 0], seats: [null, null], sockets: new Set() };
-            games.set(id, game);
-            game.sockets.add(ws);
-            seat = game.seats[0] === null ? 0 : game.seats[1] === null ? 1 : null;
-            if (seat !== null) game.seats[seat] = ws;
-            send(ws, { type: "joined", seat });
-            broadcastState(game);
-            return;
-        }
-        if (!game || seat === null) return;  // not joined, or a spectator
+        try { msg = JSON.parse(String(data)); } catch { return; }
 
         if (msg.type === "move") {
-            if (game.state.turn !== seat || !legalMoves(game.state).includes(msg.pit)) return;
-            game.state = applyMove(game.state, msg.pit).state;
-            if (isGameOver(game.state)) {
-                const winner = winnerOf(game.state);
-                if (winner !== null) game.wins[winner]++;
+            if (this.state.turn !== seat || !legalMoves(this.state).includes(msg.pit)) return;
+            this.state = applyMove(this.state, msg.pit).state;
+            if (isGameOver(this.state)) {
+                const winner = winnerOf(this.state);
+                if (winner !== null) this.wins[winner]++;
             }
-            broadcast(game, { type: "move", pit: msg.pit });
+            this.broadcast({ type: "move", pit: msg.pit });
         }
 
-        if (msg.type === "new" && isGameOver(game.state)) {
-            game.state = initialState(game.state.starter);
-            broadcastState(game);
+        if (msg.type === "new" && isGameOver(this.state)) {
+            this.state = initialState(this.state.starter);
+            this.broadcastState();
         }
-    });
+    }
 
-    ws.on("close", () => {
-        if (!game || !id) return;
-        game.sockets.delete(ws);
-        if (seat !== null) game.seats[seat] = null;
-        if (game.sockets.size === 0) games.delete(id);
-        else broadcastState(game);
-    });
-});
+    send(ws: WebSocket, msg: ServerMessage) {
+        ws.send(JSON.stringify(msg));
+    }
 
-console.log(`listening on ws://localhost:${port}`);
+    broadcast(msg: ServerMessage) {
+        for (const ws of this.sockets) this.send(ws, msg);
+    }
+
+    broadcastState() {
+        const players = this.seats.filter(Boolean).length;
+        this.broadcast({ type: "state", state: this.state, wins: this.wins, players });
+    }
+}

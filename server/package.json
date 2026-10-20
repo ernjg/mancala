@@ -3,15 +3,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node server.ts",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
     "typecheck": "tsc"
   },
-  "dependencies": {
-    "ws": "^8.18.0"
-  },
   "devDependencies": {
-    "@types/node": "^26.6.5",
-    "@types/ws": "^8.18.0",
-    "typescript": "^7.0.2"
+    "@cloudflare/workers-types": "^5.20261019.1",
+    "typescript": "^7.0.2",
+    "wrangler": "^4.151.3"
   }
 }

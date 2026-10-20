@@ -1,0 +1,12 @@
+name = "mancala"
+main = "server.ts"
+compatibility_date = "2026-10-01"
+
+# One Durable Object instance per game id holds that game's state and sockets.
+[[durable_objects.bindings]]
+name = "GAMES"
+class_name = "Game"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Game"]

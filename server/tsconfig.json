@@ -1,9 +1,10 @@
 {
   "compilerOptions": {
-    "module": "nodenext",
+    "module": "esnext",
+    "moduleResolution": "bundler",
     "target": "esnext",
     "lib": ["esnext"],
-    "types": ["node"],
+    "types": ["@cloudflare/workers-types"],
     "noEmit": true,
     "allowImportingTsExtensions": true,
     "strict": true,

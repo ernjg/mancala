@@ -1,8 +1,7 @@
 import type { Player, State } from "../rules/rules.ts";
 
-/** Browser -> server. */
+/** Browser -> server. The game is chosen by the WebSocket URL: wss://<host>/<game id>. */
 export type ClientMessage =
-    | { type: "join"; game: string }
     | { type: "move"; pit: number }
     | { type: "new" };
 
