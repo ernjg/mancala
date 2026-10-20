@@ -9,6 +9,8 @@ const boardEl = document.querySelector("#board")!;
 const messageEl = document.querySelector("#message")!;
 const controlsEl = document.querySelector("#controls")!;
 const winsEl = document.querySelector("#wins")!;
+const menuEl = document.querySelector<HTMLElement>("#menu")!;
+const codeEl = document.querySelector<HTMLInputElement>("#code")!;
 
 let state: State = initialState();
 let busy = false;
@@ -91,13 +93,6 @@ function refresh() {
     winsEl.textContent = `wins: player 0${you(0)} ${wins[0]}, player 1${you(1)} ${wins[1]}`;
     controlsEl.replaceChildren();
     if (isGameOver(state) && (!socket || seat !== null)) controlsEl.append(button("new game", newGame));
-    if (!socket) {
-        const code = document.createElement("input");
-        code.size = 4;
-        code.maxLength = 4;
-        code.onkeydown = e => { if (e.key === "Enter") joinRoom(code.value); };
-        controlsEl.append(button("make room", () => joinRoom(newRoomCode())), "  join room: ", code, " ", button("join", () => joinRoom(code.value)));
-    }
     if (socket && players < 2) {
         const copy = button("copy link", () => {
             navigator.clipboard.writeText(location.href).then(() => {
@@ -178,6 +173,7 @@ async function handle(msg: ServerMessage) {
 }
 
 function connect(game: string) {
+    menuEl.hidden = true;
     socket = new WebSocket(`${WS_URL}/${game}`);
     // Messages are handled one at a time so a snapshot never lands mid-animation.
     let queue = Promise.resolve();
@@ -190,6 +186,10 @@ function connect(game: string) {
     messageEl.textContent = "connecting...";
     refresh();
 }
+
+document.querySelector<HTMLButtonElement>("#make")!.onclick = () => joinRoom(newRoomCode());
+document.querySelector<HTMLButtonElement>("#join")!.onclick = () => joinRoom(codeEl.value);
+codeEl.onkeydown = e => { if (e.key === "Enter") joinRoom(codeEl.value); };
 
 buildBoard(0);
 if (gameId) {
