@@ -1,4 +1,4 @@
-import { applyMove, describeStep, initialState, isGameOver, legalMoves, pitsOf, winnerOf, type Player, type State, type Step } from "../rules/rules.ts";
+import { applyMove, describeStep, initialState, isGameOver, legalMoves, other, pitsOf, storeOf, winnerOf, type Player, type State, type Step } from "../rules/rules.ts";
 import type { ClientMessage, ServerMessage } from "../server/protocol.ts";
 
 const STEP_MS = 350;
@@ -21,9 +21,9 @@ let players = 0;                 // seats filled
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-// ---------- build the board once ----------
-// Player 1's pits run right-to-left along the top, player 0's left-to-right
-// along the bottom, with each player's store at the end they sow into.
+// ---------- build the board ----------
+// Seen from `me`: my pits run left-to-right along the bottom into my store
+// on the right; the opponent's run right-to-left along the top into theirs.
 // `cells[i]` is the button that displays pit i. Stores are buttons too so
 // they match, but they are never playable so they stay disabled.
 
@@ -39,11 +39,13 @@ function cell(index: number, rowSpan = 1) {
     return td;
 }
 
-const top = document.createElement("tr");
-top.append(cell(13, 2), ...pitsOf(1).reverse().map(i => cell(i)), cell(6, 2));
-const bottom = document.createElement("tr");
-bottom.append(...pitsOf(0).map(i => cell(i)));
-boardEl.append(top, bottom);
+function buildBoard(me: Player) {
+    const top = document.createElement("tr");
+    top.append(cell(storeOf(other(me)), 2), ...pitsOf(other(me)).reverse().map(i => cell(i)), cell(storeOf(me), 2));
+    const bottom = document.createElement("tr");
+    bottom.append(...pitsOf(me).map(i => cell(i)));
+    boardEl.replaceChildren(top, bottom);
+}
 
 // ---------- rendering ----------
 
@@ -135,6 +137,7 @@ async function handle(msg: ServerMessage) {
     switch (msg.type) {
         case "joined":
             seat = msg.seat;
+            buildBoard(seat ?? 0);
             break;
         case "state":
             state = msg.state;
@@ -167,6 +170,7 @@ function connect(game: string) {
     refresh();
 }
 
+buildBoard(0);
 if (gameId) {
     connect(gameId);
 } else {
