@@ -48,7 +48,7 @@ function show(board: number[], playable: number[] = []) {
         cell.textContent = String(seeds);
         if (cell instanceof HTMLButtonElement) {
             cell.disabled = !playable.includes(i);
-            cell.style.background = `hsl(30 70% ${Math.max(40, 95 - seeds * 5)}%)`;
+            cell.style.color = `hsl(30 100% ${Math.max(15, 55 - seeds * 4)}%)`;
         }
     });
 }
