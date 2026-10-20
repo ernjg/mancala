@@ -93,14 +93,17 @@ function refresh() {
     if (isGameOver(state) && (!socket || seat !== null)) controlsEl.append(button("new game", newGame));
     if (!socket) {
         const code = document.createElement("input");
-        code.placeholder = "room code";
-        code.size = 6;
+        code.size = 4;
+        code.maxLength = 4;
         code.onkeydown = e => { if (e.key === "Enter") joinRoom(code.value); };
-        controlsEl.append(button("make room", () => joinRoom(newRoomCode())), " ", code, button("join", () => joinRoom(code.value)));
+        controlsEl.append(button("make room", () => joinRoom(newRoomCode())), "  join room: ", code, " ", button("join", () => joinRoom(code.value)));
     }
     if (socket && players < 2) {
         const copy = button("copy link", () => {
-            navigator.clipboard.writeText(location.href).then(() => { copy.textContent = "copied"; });
+            navigator.clipboard.writeText(location.href).then(() => {
+                copy.textContent = "copied";
+                setTimeout(() => { copy.textContent = "copy link"; }, 1500);
+            });
         });
         controlsEl.append(copy);
     }
