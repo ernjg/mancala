@@ -13,30 +13,25 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 // ---------- build the board once ----------
 // Player 1's pits run right-to-left along the top, player 0's left-to-right
 // along the bottom, with each player's store at the end they sow into.
-// `cells[i]` is the element that displays pit i.
+// `cells[i]` is the button that displays pit i. Stores are buttons too so
+// they match, but they are never playable so they stay disabled.
 
-const cells: HTMLElement[] = [];
+const cells: HTMLButtonElement[] = [];
 
-function pitCell(index: number) {
+function cell(index: number, rowSpan = 1) {
     const b = document.createElement("button");
     b.onclick = () => play(index);
     cells[index] = b;
     const td = document.createElement("td");
+    td.rowSpan = rowSpan;
     td.append(b);
     return td;
 }
 
-function storeCell(index: number) {
-    const td = document.createElement("td");
-    td.rowSpan = 2;
-    cells[index] = td;
-    return td;
-}
-
 const top = document.createElement("tr");
-top.append(storeCell(13), ...pitsOf(1).reverse().map(pitCell), storeCell(6));
+top.append(cell(13, 2), ...pitsOf(1).reverse().map(i => cell(i)), cell(6, 2));
 const bottom = document.createElement("tr");
-bottom.append(...pitsOf(0).map(pitCell));
+bottom.append(...pitsOf(0).map(i => cell(i)));
 boardEl.append(top, bottom);
 
 // ---------- rendering ----------
@@ -44,12 +39,10 @@ boardEl.append(top, bottom);
 /** Show seed counts; only pits in `playable` are clickable. */
 function show(board: number[], playable: number[] = []) {
     board.forEach((seeds, i) => {
-        const cell = cells[i]!;
-        cell.textContent = String(seeds);
-        if (cell instanceof HTMLButtonElement) {
-            cell.disabled = !playable.includes(i);
-            cell.style.color = `hsl(${240 + Math.min(seeds, 12) * 15} 100% 45%)`;
-        }
+        const b = cells[i]!;
+        b.textContent = String(seeds);
+        b.disabled = !playable.includes(i);
+        b.style.color = `hsl(${240 + Math.min(seeds, 12) * 15} 100% 45%)`;
     });
 }
 
