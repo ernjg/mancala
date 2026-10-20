@@ -10,3 +10,19 @@ export type ServerMessage =
     | { type: "joined"; seat: Player | null }                                   // null = spectator
     | { type: "state"; state: State; wins: [number, number]; players: number }  // full snapshot
     | { type: "move"; pit: number };                                            // replay this move
+
+// ---------- lobby ----------
+
+/** Browser -> lobby, at wss://<host>/lobby. */
+export type LobbyClientMessage =
+    | { type: "find" };  // pair me with the next person who asks
+
+/** Lobby -> browser. */
+export type LobbyServerMessage =
+    | { type: "online"; count: number }  // people on the front page right now
+    | { type: "match"; game: string };   // go play in this room
+
+/** Four characters, A-Z and 0-9. */
+export function newRoomCode(): string {
+    return Math.random().toString(36).slice(2, 6).toUpperCase();
+}

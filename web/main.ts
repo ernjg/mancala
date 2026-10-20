@@ -1,5 +1,5 @@
 import { applyMove, describeStep, initialState, isGameOver, legalMoves, other, pitsOf, storeOf, winnerOf, type Player, type State, type Step } from "../rules/rules.ts";
-import type { ClientMessage, ServerMessage } from "../server/protocol.ts";
+import { newRoomCode, type ClientMessage, type LobbyClientMessage, type LobbyServerMessage, type ServerMessage } from "../server/protocol.ts";
 
 const STEP_MS = 350;
 const WS_URL: string = import.meta.env.VITE_WS_URL ?? "ws://localhost:8787";  // wrangler dev
@@ -11,6 +11,8 @@ const controlsEl = document.querySelector("#controls")!;
 const winsEl = document.querySelector("#wins")!;
 const menuEl = document.querySelector<HTMLElement>("#menu")!;
 const codeEl = document.querySelector<HTMLInputElement>("#code")!;
+const summaryEl = document.querySelector<HTMLElement>("#summary")!;
+const randomEl = document.querySelector<HTMLButtonElement>("#random")!;
 
 let state: State = initialState();
 let busy = false;
@@ -137,10 +139,6 @@ function newGame() {
 
 // ---------- online ----------
 
-function newRoomCode() {
-    return Math.random().toString(36).slice(2, 6).toUpperCase();
-}
-
 function joinRoom(code: string) {
     code = code.trim().toUpperCase();
     if (code) location.search = `?game=${code}`;
@@ -191,10 +189,31 @@ document.querySelector<HTMLButtonElement>("#make")!.onclick = () => joinRoom(new
 document.querySelector<HTMLButtonElement>("#join")!.onclick = () => joinRoom(codeEl.value);
 codeEl.onkeydown = e => { if (e.key === "Enter") joinRoom(codeEl.value); };
 
+/** On the front page: show how many people are here and let them find a random opponent. */
+function connectLobby() {
+    const lobby = new WebSocket(`${WS_URL}/lobby`);
+    const send = (msg: LobbyClientMessage) => lobby.send(JSON.stringify(msg));
+    randomEl.onclick = () => {
+        send({ type: "find" });
+        randomEl.textContent = "looking for an opponent...";
+        randomEl.disabled = true;
+    };
+    lobby.onmessage = e => {
+        const msg: LobbyServerMessage = JSON.parse(e.data);
+        if (msg.type === "online") summaryEl.textContent = `play online (${msg.count} online)`;
+        if (msg.type === "match") joinRoom(msg.game);
+    };
+    lobby.onclose = () => {
+        summaryEl.textContent = "play online";
+        randomEl.disabled = true;
+    };
+}
+
 buildBoard(0);
 if (gameId) {
     connect(gameId);
 } else {
+    connectLobby();
     messageEl.textContent = `player ${state.turn} to move`;
     refresh();
 }

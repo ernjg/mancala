@@ -1,9 +1,10 @@
 import { DurableObject } from "cloudflare:workers";
 import { applyMove, initialState, isGameOver, legalMoves, winnerOf, type Player, type State } from "../rules/rules.ts";
-import type { ClientMessage, ServerMessage } from "./protocol.ts";
+import { newRoomCode, type ClientMessage, type LobbyClientMessage, type LobbyServerMessage, type ServerMessage } from "./protocol.ts";
 
 export interface Env {
     GAMES: DurableObjectNamespace<Game>;
+    LOBBY: DurableObjectNamespace<Lobby>;
 }
 
 // Guards. Browsers always send Origin on a WebSocket handshake, so this keeps
@@ -12,10 +13,11 @@ export interface Env {
 const ALLOWED_ORIGINS = ["https://ejgomez.com", "http://localhost:5173"];
 const GAME_ID = /^[a-z0-9]{1,32}$/i;
 const MAX_SOCKETS = 8;
+const MAX_LOBBY = 200;
 const MAX_MESSAGE = 100;
 const IDLE_MS = 30 * 60 * 1000;  // close a game nobody has touched for this long
 
-/** Entry point: hands each WebSocket to the Durable Object for its game id. */
+/** Entry point: hands each WebSocket to the lobby or to the Durable Object for its game id. */
 export default {
     async fetch(request: Request, env: Env): Promise<Response> {
         if (!ALLOWED_ORIGINS.includes(request.headers.get("Origin") ?? "")) {
@@ -26,9 +28,67 @@ export default {
         if (request.headers.get("Upgrade") !== "websocket") {
             return new Response("expected a WebSocket", { status: 426 });
         }
+        if (id === "lobby") return env.LOBBY.get(env.LOBBY.idFromName("lobby")).fetch(request);
         return env.GAMES.get(env.GAMES.idFromName(id)).fetch(request);
     },
 };
+
+/**
+ * The single lobby: counts who is on the front page and pairs up anyone who
+ * asks for a random opponent. It uses the hibernation API so holding many
+ * idle sockets costs nothing; "waiting" is kept on the socket itself so it
+ * survives the object sleeping.
+ */
+export class Lobby extends DurableObject<Env> {
+    override async fetch(_request: Request): Promise<Response> {
+        if (this.ctx.getWebSockets().length >= MAX_LOBBY) return new Response("lobby is full", { status: 503 });
+        const pair = new WebSocketPair();
+        this.ctx.acceptWebSocket(pair[1]);
+        this.broadcastCount();
+        return new Response(null, { status: 101, webSocket: pair[0] });
+    }
+
+    override async webSocketMessage(ws: WebSocket, data: string | ArrayBuffer) {
+        if (typeof data !== "string" || data.length > MAX_MESSAGE) return;
+        let msg: LobbyClientMessage;
+        try { msg = JSON.parse(data); } catch { return; }
+
+        if (msg.type === "find") {
+            const partner = this.waiting().find(w => w !== ws);
+            if (!partner) {
+                ws.serializeAttachment({ waiting: true });
+                return;
+            }
+            const game = newRoomCode();
+            for (const w of [partner, ws]) {
+                w.serializeAttachment(null);
+                this.send(w, { type: "match", game });
+            }
+        }
+    }
+
+    override async webSocketClose(ws: WebSocket) {
+        this.broadcastCount(ws);
+    }
+
+    override async webSocketError(ws: WebSocket) {
+        this.broadcastCount(ws);
+    }
+
+    waiting(): WebSocket[] {
+        return this.ctx.getWebSockets().filter(w => w.deserializeAttachment()?.waiting === true);
+    }
+
+    send(ws: WebSocket, msg: LobbyServerMessage) {
+        try { ws.send(JSON.stringify(msg)); } catch { /* already gone */ }
+    }
+
+    /** Tell everyone how many are here, leaving out a socket that is on its way out. */
+    broadcastCount(leaving?: WebSocket) {
+        const sockets = this.ctx.getWebSockets().filter(w => w !== leaving);
+        for (const w of sockets) this.send(w, { type: "online", count: sockets.length });
+    }
+}
 
 /** One game: its state, the two seats, and everyone connected to it. */
 export class Game extends DurableObject<Env> {
