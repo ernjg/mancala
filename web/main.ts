@@ -44,7 +44,8 @@ function show(board: number[], playable: number[] = []) {
         const b = cells[i]!;
         b.textContent = String(seeds);
         b.disabled = !playable.includes(i);
-        b.style.color = `hsl(${240 + Math.min(seeds, 12) * 15} 100% 45%)`;
+        const t = Math.min(seeds, 12);
+        b.style.color = `hsl(${240 + t * 15} 100% ${45 - t}%)`;
     });
 }
 
