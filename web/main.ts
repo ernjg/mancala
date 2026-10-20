@@ -160,8 +160,8 @@ function connect(game: string) {
     // Messages are handled one at a time so a snapshot never lands mid-animation.
     let queue = Promise.resolve();
     socket.onmessage = e => { queue = queue.then(() => handle(JSON.parse(e.data))); };
-    socket.onclose = () => {
-        messageEl.textContent = "disconnected";
+    socket.onclose = e => {
+        messageEl.textContent = e.reason || "disconnected";
         busy = true;
         refresh();
     };

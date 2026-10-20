@@ -13,6 +13,7 @@ const ALLOWED_ORIGINS = ["https://ejgomez.com", "http://localhost:5173"];
 const GAME_ID = /^[a-z0-9]{1,32}$/i;
 const MAX_SOCKETS = 8;
 const MAX_MESSAGE = 100;
+const IDLE_MS = 30 * 60 * 1000;  // close a game nobody has touched for this long
 
 /** Entry point: hands each WebSocket to the Durable Object for its game id. */
 export default {
@@ -45,7 +46,18 @@ export class Game extends DurableObject<Env> {
         return new Response(null, { status: 101, webSocket: client });
     }
 
+    /** Restart the idle timer. */
+    touch() {
+        void this.ctx.storage.setAlarm(Date.now() + IDLE_MS);
+    }
+
+    /** Idle timer fired: drop everyone so the object can be evicted. */
+    override async alarm() {
+        for (const ws of this.sockets) ws.close(1000, "closed for inactivity");
+    }
+
     join(ws: WebSocket) {
+        this.touch();
         this.sockets.add(ws);
         const seat: Player | null = this.seats[0] === null ? 0 : this.seats[1] === null ? 1 : null;
         if (seat !== null) this.seats[seat] = ws;
@@ -65,6 +77,7 @@ export class Game extends DurableObject<Env> {
     onMessage(seat: Player | null, data: unknown) {
         if (seat === null) return;  // spectators can't act
         if (typeof data !== "string" || data.length > MAX_MESSAGE) return;
+        this.touch();
         let msg: ClientMessage;
         try { msg = JSON.parse(String(data)); } catch { return; }
 
