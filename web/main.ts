@@ -91,9 +91,19 @@ function refresh() {
     winsEl.textContent = `wins: player 0${you(0)} ${wins[0]}, player 1${you(1)} ${wins[1]}`;
     controlsEl.replaceChildren();
     if (isGameOver(state) && (!socket || seat !== null)) controlsEl.append(button("new game", newGame));
-    if (!socket) controlsEl.append(button("play online", () => {
-        location.search = `?game=${Math.random().toString(36).slice(2, 8)}`;
-    }));
+    if (!socket) {
+        const code = document.createElement("input");
+        code.placeholder = "room code";
+        code.size = 6;
+        code.onkeydown = e => { if (e.key === "Enter") joinRoom(code.value); };
+        controlsEl.append(button("make room", () => joinRoom(newRoomCode())), " ", code, button("join", () => joinRoom(code.value)));
+    }
+    if (socket && players < 2) {
+        const copy = button("copy link", () => {
+            navigator.clipboard.writeText(location.href).then(() => { copy.textContent = "copied"; });
+        });
+        controlsEl.append(copy);
+    }
 }
 
 // ---------- actions ----------
@@ -129,6 +139,15 @@ function newGame() {
 
 // ---------- online ----------
 
+function newRoomCode() {
+    return Math.random().toString(36).slice(2, 6).toUpperCase();
+}
+
+function joinRoom(code: string) {
+    code = code.trim().toUpperCase();
+    if (code) location.search = `?game=${code}`;
+}
+
 function send(msg: ClientMessage) {
     socket?.send(JSON.stringify(msg));
 }
@@ -144,7 +163,7 @@ async function handle(msg: ServerMessage) {
             wins = msg.wins;
             players = msg.players;
             messageEl.textContent =
-                players < 2 ? `waiting for an opponent, send them this link: ${location.href}`
+                players < 2 ? `room ${gameId}, waiting for an opponent`
                 : isGameOver(state) ? "game over"
                 : `player ${state.turn} to move`;
             refresh();
