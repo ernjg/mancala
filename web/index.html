@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <title>mancala</title>
-    <style>button { min-width: 2.5em; }</style>
+    <style>button { min-width: 2.5em; } button, input { font-size: 1.2rem; } fieldset { width: fit-content; }</style>
 </head>
 <body>
     <table id="board"></table>
@@ -12,9 +12,15 @@
     <p id="controls"></p>
     <details id="menu">
         <summary id="summary">play online</summary>
-        <p><button id="random">play random</button></p>
-        <p><button id="make">make room</button></p>
-        <p>join room: <input id="code" size="4" maxlength="4"> <button id="join">join</button></p>
+        <fieldset>
+            <legend>random opponent</legend>
+            <button id="random">play random</button>
+        </fieldset>
+        <fieldset>
+            <legend>private room</legend>
+            <p><button id="make">make room</button></p>
+            <p>join room: <input id="code" size="4" maxlength="4"> <button id="join">join</button></p>
+        </fieldset>
     </details>
     <p><a href="https://ejgomez.com/">ejgomez.com</a></p>
     <script type="module" src="/main.ts"></script>
