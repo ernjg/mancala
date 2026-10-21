@@ -1,9 +1,17 @@
 export type Player = 0 | 1;
 
+/**
+ * Pie rule progress. "opening": the starter's first turn is still going.
+ * "offer": the other player's first turn; they may swap sides instead of moving.
+ * "done" (or missing): no swap is possible.
+ */
+export type Pie = "opening" | "offer" | "done";
+
 export type State = {
     board: number[];
     turn: Player;
     starter: Player;
+    pie?: Pie;
 };
 
 /**
@@ -67,7 +75,26 @@ export function initialState(lastStarter: Player = 1): State {
         ],
         turn: starter,
         starter,
+        pie: "opening",
     };
+}
+
+/** The pie rule is live: the player to move may swap sides instead of moving. */
+export function canSwap(state: State): boolean {
+    return state.pie === "offer" && !isGameOver(state);
+}
+
+/** Take over the starter's position: mirror the board and hand the turn back. */
+export function swapSides(state: State): State {
+    if (!canSwap(state)) throw new Error("Cannot swap sides now");
+    const b = state.board;
+    return { board: [...b.slice(7, 14), ...b.slice(0, 7)], turn: other(state.turn), starter: state.starter, pie: "done" };
+}
+
+/** "opening" lasts until the starter's turn ends, then one "offer"; any move after that settles it. */
+function nextPie(pie: Pie | undefined, turnPassed: boolean): Pie {
+    if (pie === "opening") return turnPassed ? "offer" : "opening";
+    return "done";
 }
 
 export function isGameOver(state: State): boolean {
@@ -106,14 +133,14 @@ export function applyMove(state: State, pitIndex: number): MoveResult {
         // the sweep moves the leftovers into the stores one pit at a time.
         board = sweep(board, steps);
         steps.push({ kind: "gameOver", board, winner: winnerOf({ ...state, board }) });
-        return { steps, state: { ...state, board } };
+        return { steps, state: { ...state, board, pie: "done" } };
     }
 
     const extraTurn = landed.lastPit === storeOf(me);
     const next = extraTurn ? me : other(me);
     steps.push({ kind: "turn", board, next, extraTurn });
 
-    return { steps, state: { board, turn: next, starter: state.starter } };
+    return { steps, state: { board, turn: next, starter: state.starter, pie: nextPie(state.pie, next !== me) } };
 }
 
 // ---------- phases ----------

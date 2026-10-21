@@ -1,5 +1,5 @@
-import { applyMove, initialState, isGameOver, legalMoves, other, ownerOf, pitsOf, storeOf, winnerOf, type Player, type State, type Step } from "../rules/rules.ts";
-import { bestMove } from "../rules/ai.ts";
+import { applyMove, canSwap, initialState, isGameOver, legalMoves, other, ownerOf, pitsOf, storeOf, swapSides, winnerOf, type Player, type State, type Step } from "../rules/rules.ts";
+import { bestMove, shouldSwap } from "../rules/ai.ts";
 import { newRoomCode, type ClientMessage, type LobbyClientMessage, type LobbyServerMessage, type ServerMessage } from "../server/protocol.ts";
 
 const STEP_MS = 350;
@@ -94,6 +94,12 @@ function botsTurn(): boolean {
     return !socket && mode === "bot" && state.turn === 1 && !isGameOver(state);
 }
 
+/** Is the person at this screen the one to act? */
+function myTurn(): boolean {
+    if (socket) return state.turn === seat;
+    return !botsTurn() && mode !== "online";
+}
+
 /** What to call a player from this screen's point of view. */
 function name(p: Player): string {
     if (socket && seat !== null) return p === seat ? "you" : "opponent";
@@ -149,6 +155,7 @@ function refresh() {
     const me: Player = seat ?? 0;
     winsEl.textContent = `${name(me)} ${wins[me]} · ${name(other(me))} ${wins[other(me)]}`;
     controlsEl.replaceChildren();
+    if (canSwap(state) && !busy && myTurn()) controlsEl.append(button("swap sides", swap));
     if (!socket || (seat !== null && isGameOver(state))) controlsEl.append(button("new game", newGame));
     if (socket) {
         const label = document.createElement("span");
@@ -181,12 +188,37 @@ async function play(pit: number) {
     }
     state = result.state;
     busy = false;
+    if (canSwap(state) && myTurn()) messageEl.textContent = `${turnText(state.turn)}: move, or swap sides`;
     if (isGameOver(state)) {
         const winner = winnerOf(state);
         if (winner !== null) wins[winner]++;
     }
     refresh();
-    if (botsTurn()) void play(bestMove(state));
+    if (botsTurn()) botPlay();
+}
+
+/** The bot's turn: take the pie-rule swap when it pays, otherwise its best move. */
+function botPlay() {
+    if (shouldSwap(state)) swap();
+    else void play(bestMove(state));
+}
+
+/** Pie rule: take over the starter's position instead of moving. */
+function swap() {
+    if (busy || !canSwap(state)) return;
+    if (socket) {
+        send({ type: "swap" });
+        return;
+    }
+    applySwap();
+    if (botsTurn()) botPlay();
+}
+
+function applySwap() {
+    const by = state.turn;
+    state = swapSides(state);
+    messageEl.textContent = `${name(by)} swapped sides, ${turnText(state.turn)}`;
+    refresh();
 }
 
 function newGame() {
@@ -197,7 +229,7 @@ function newGame() {
     state = initialState(state.starter);
     messageEl.textContent = turnText(state.turn);
     refresh();
-    if (botsTurn()) void play(bestMove(state));
+    if (botsTurn()) botPlay();
 }
 
 // ---------- online ----------
@@ -229,6 +261,9 @@ async function handle(msg: ServerMessage) {
             break;
         case "move":
             await play(msg.pit);
+            break;
+        case "swap":
+            applySwap();
             break;
     }
 }
@@ -279,7 +314,7 @@ function syncMode() {
     boardEl.hidden = messageEl.hidden = winsEl.hidden = controlsEl.hidden = !onlineEl.hidden;  // nothing to play until in a room
     if (!socket && !busy && !isGameOver(state)) messageEl.textContent = turnText(state.turn);  // names depend on the mode
     refresh();
-    if (botsTurn() && !busy) void play(bestMove(state));
+    if (botsTurn() && !busy) botPlay();
 }
 for (const b of modeEls) {
     b.onclick = () => {  // a new mode starts a new game

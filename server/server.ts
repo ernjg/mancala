@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { applyMove, initialState, isGameOver, legalMoves, winnerOf, type Player, type State } from "../rules/rules.ts";
+import { applyMove, canSwap, initialState, isGameOver, legalMoves, swapSides, winnerOf, type Player, type State } from "../rules/rules.ts";
 import { newRoomCode, type ClientMessage, type LobbyClientMessage, type LobbyServerMessage, type ServerMessage } from "./protocol.ts";
 
 export interface Env {
@@ -152,6 +152,12 @@ export class Game extends DurableObject<Env> {
                 if (winner !== null) this.wins[winner]++;
             }
             this.broadcast({ type: "move", pit: msg.pit });
+        }
+
+        if (msg.type === "swap") {
+            if (this.state.turn !== seat || !canSwap(this.state)) return;
+            this.state = swapSides(this.state);
+            this.broadcast({ type: "swap" });
         }
 
         if (msg.type === "new" && isGameOver(this.state)) {
