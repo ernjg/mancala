@@ -57,7 +57,8 @@
         #board button:not(:disabled) { cursor: pointer; }
         #board button:not(:disabled):hover { border-width: 2px; }
         #board .active { outline: 2px solid var(--ink); outline-offset: 1px; opacity: 1; }
-        .dots { display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; width: 37px; }  /* five dots a row */
+        .dots { display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; width: 21px; }  /* three a row */
+        .dots.wide { width: 37px; }  /* five a row, for big piles */
         .dots i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
 
         #message { margin: 1.2em 0 0; min-height: 1.55em; }

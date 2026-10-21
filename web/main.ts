@@ -71,7 +71,9 @@ function show(board: number[], playable: number[] = [], active?: number) {
         const store = isStore(i);
         b.querySelector(".n")!.textContent = String(seeds);
         const dots = Array.from({ length: seeds }, () => document.createElement("i"));
-        b.querySelector(".dots")!.replaceChildren(...dots);
+        const dotsEl = b.querySelector(".dots")!;
+        dotsEl.replaceChildren(...dots);
+        dotsEl.classList.toggle("wide", seeds > 12);
         b.disabled = !playable.includes(i);
         b.classList.toggle("active", i === active);
         b.setAttribute("aria-label", store ? `${storeName(ownerOf(i))}: ${seeds}` : `pit: ${seeds}`);
