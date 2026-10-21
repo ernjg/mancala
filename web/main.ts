@@ -117,7 +117,7 @@ function refresh() {
     const me: Player = seat ?? 0;
     winsEl.replaceChildren(scoreRow("wins", ""), scoreRow(name(me), String(wins[me])), scoreRow(name(other(me)), String(wins[other(me)])));
     controlsEl.replaceChildren();
-    if (isGameOver(state) && (!socket || seat !== null)) controlsEl.append(button("new game", newGame));
+    if (!socket || (seat !== null && isGameOver(state))) controlsEl.append(button("new game", newGame));
     if (socket && players < 2) {
         const copy = button("copy link", () => {
             navigator.clipboard.writeText(location.href).then(() => {
