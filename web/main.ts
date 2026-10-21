@@ -70,7 +70,7 @@ function show(board: number[], playable: number[] = [], active?: number) {
         const b = cells[i]!;
         const store = isStore(i);
         b.querySelector(".n")!.textContent = String(seeds);
-        const dots = Array.from({ length: Math.min(seeds, store ? 48 : 12) }, () => document.createElement("i"));
+        const dots = Array.from({ length: seeds }, () => document.createElement("i"));
         b.querySelector(".dots")!.replaceChildren(...dots);
         b.disabled = !playable.includes(i);
         b.classList.toggle("active", i === active);
