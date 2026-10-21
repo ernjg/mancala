@@ -4,11 +4,12 @@ import type { Player, State } from "../rules/rules.ts";
 export type ClientMessage =
     | { type: "move"; pit: number }
     | { type: "swap" }  // take the first player's position instead of moving
-    | { type: "new" };
+    | { type: "new" }
+    | { type: "leave" };  // give up my seat now, instead of after the reconnect grace period
 
 /** Server -> browser. */
 export type ServerMessage =
-    | { type: "joined"; seat: Player | null }                                   // null = spectator
+    | { type: "joined"; seat: Player | null; token?: string }                   // null = spectator; token reclaims the seat on reconnect
     | { type: "state"; state: State; wins: [number, number]; players: number }  // full snapshot
     | { type: "move"; pit: number }                                             // replay this move
     | { type: "swap" };                                                         // replay a pie-rule swap

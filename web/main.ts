@@ -3,6 +3,8 @@ import { bestMove, shouldSwap } from "../rules/ai.ts";
 import { newRoomCode, type ClientMessage, type LobbyClientMessage, type LobbyServerMessage, type ServerMessage } from "../server/protocol.ts";
 
 const STEP_MS = 350;
+const RETRY_MS = 2000;        // between reconnection attempts
+const RECONNECT_FOR = 20000;  // keep trying this long; the server holds the seat for 15 s
 const WS_URL: string = import.meta.env.VITE_WS_URL ?? "ws://localhost:8787";  // wrangler dev
 const gameId = new URLSearchParams(location.search).get("game");
 
@@ -29,6 +31,9 @@ let wins: [number, number] = [0, 0];
 let socket: WebSocket | null = null;
 let seat: Player | null = null;  // which player I am; null = spectator
 let players = 0;                 // seats filled
+let leaving = false;             // we chose to go: don't reconnect
+let downSince: number | null = null;  // when the connection was lost, while we are trying to get it back
+let queue = Promise.resolve();   // messages are handled one at a time so a snapshot never lands mid-animation
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -171,7 +176,7 @@ function refresh() {
             });
             roomEl.append(copy);
         }
-        roomEl.append(button("leave", () => { location.href = location.pathname; }));
+        roomEl.append(button("leave", leave));
     }
 }
 
@@ -248,6 +253,7 @@ async function handle(msg: ServerMessage) {
     switch (msg.type) {
         case "joined":
             seat = msg.seat;
+            if (msg.token) try { sessionStorage.setItem(tokenKey, msg.token); } catch { /* storage off */ }
             buildBoard(seat ?? 0);
             break;
         case "state":
@@ -269,20 +275,42 @@ async function handle(msg: ServerMessage) {
     }
 }
 
+const tokenKey = `seat:${gameId}`;  // this tab's claim on its seat, so a reload or a dropped connection gets it back
+
 function connect(game: string) {
     menuEl.hidden = true;
     roomEl.hidden = false;
-    socket = new WebSocket(`${WS_URL}/${game}`);
-    // Messages are handled one at a time so a snapshot never lands mid-animation.
-    let queue = Promise.resolve();
-    socket.onmessage = e => { queue = queue.then(() => handle(JSON.parse(e.data))); };
-    socket.onclose = e => {
-        messageEl.textContent = e.reason || "disconnected";
+    let token: string | null = null;
+    try { token = sessionStorage.getItem(tokenKey); } catch { /* storage off */ }
+    const ws = new WebSocket(`${WS_URL}/${game}${token ? `?token=${token}` : ""}`);
+    socket = ws;
+    busy = false;
+    ws.onopen = () => { downSince = null; };
+    ws.onmessage = e => { queue = queue.then(() => handle(JSON.parse(e.data))).catch(console.error); };
+    ws.onclose = e => {
+        if (leaving || socket !== ws) return;
         busy = true;
+        downSince ??= Date.now();
+        if (e.reason) {                                       // the server said why: stay down
+            messageEl.textContent = e.reason;
+        } else if (Date.now() - downSince < RECONNECT_FOR) {  // dropped: keep trying to get our seat back
+            messageEl.textContent = "reconnecting...";
+            setTimeout(() => connect(game), RETRY_MS);
+        } else {
+            messageEl.textContent = "disconnected";
+        }
         refresh();
     };
     messageEl.textContent = "connecting...";
     refresh();
+}
+
+/** Leave the room for good: the server frees the seat now instead of waiting for us to come back. */
+function leave() {
+    leaving = true;
+    send({ type: "leave" });
+    try { sessionStorage.removeItem(tokenKey); } catch { /* storage off */ }
+    location.href = location.pathname;
 }
 
 document.querySelector<HTMLButtonElement>("#make")!.onclick = () => joinRoom(newRoomCode());

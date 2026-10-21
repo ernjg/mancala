@@ -16,6 +16,7 @@ const MAX_SOCKETS = 8;
 const MAX_LOBBY = 200;
 const MAX_MESSAGE = 100;
 const IDLE_MS = 30 * 60 * 1000;  // close a game nobody has touched for this long
+const GRACE_MS = 15 * 1000;      // a dropped player keeps their seat this long to reconnect
 
 /** Entry point: hands each WebSocket to the lobby or to the Durable Object for its game id. */
 export default {
@@ -90,19 +91,22 @@ export class Lobby extends DurableObject<Env> {
     }
 }
 
+/** A player's seat: their socket (null while they are reconnecting), the token that reclaims it, and the grace timer. */
+type Seat = { ws: WebSocket | null; token: string; timer?: ReturnType<typeof setTimeout> | undefined };
+
 /** One game: its state, the two seats, and everyone connected to it. */
 export class Game extends DurableObject<Env> {
     state: State = initialState();
     wins: [number, number] = [0, 0];
-    seats: [WebSocket | null, WebSocket | null] = [null, null];  // who is player 0 and 1
-    sockets = new Set<WebSocket>();                              // players plus spectators
+    seats: [Seat | null, Seat | null] = [null, null];  // who is player 0 and 1
+    sockets = new Set<WebSocket>();                     // players plus spectators
 
-    override async fetch(_request: Request): Promise<Response> {
+    override async fetch(request: Request): Promise<Response> {
         if (this.sockets.size >= MAX_SOCKETS) return new Response("game is full", { status: 503 });
         const pair = new WebSocketPair();
         const [client, server] = [pair[0], pair[1]];
         server.accept();
-        this.join(server);
+        this.join(server, new URL(request.url).searchParams.get("token"));
         return new Response(null, { status: 101, webSocket: client });
     }
 
@@ -116,28 +120,71 @@ export class Game extends DurableObject<Env> {
         for (const ws of this.sockets) ws.close(1000, "closed for inactivity");
     }
 
-    join(ws: WebSocket) {
+    /** Seat a new socket: back in its old seat if its token matches one, else in a free seat, else as a spectator. */
+    join(ws: WebSocket, token: string | null) {
         this.touch();
         this.sockets.add(ws);
-        const seat: Player | null = this.seats[0] === null ? 0 : this.seats[1] === null ? 1 : null;
-        if (seat !== null) this.seats[seat] = ws;
-        ws.addEventListener("message", e => this.onMessage(seat, e.data));
-        ws.addEventListener("close", () => this.leave(ws, seat));
-        ws.addEventListener("error", () => this.leave(ws, seat));
-        this.send(ws, { type: "joined", seat });
+        let seat: Player | null = null;
+        const owned = token === null ? -1 : this.seats.findIndex(s => s !== null && s.token === token);
+        if (owned !== -1) {
+            seat = owned as Player;
+            const old = this.seats[seat]!;
+            if (old.timer !== undefined) clearTimeout(old.timer);
+            if (old.ws !== null) {  // the same player again before their old socket closed: the new one wins
+                this.sockets.delete(old.ws);
+                old.ws.close(1000, "reconnected elsewhere");
+            }
+            old.ws = ws;
+            old.timer = undefined;
+        } else {
+            seat = this.seats[0] === null ? 0 : this.seats[1] === null ? 1 : null;
+            if (seat !== null) this.seats[seat] = { ws, token: crypto.randomUUID() };
+        }
+        ws.addEventListener("message", e => this.onMessage(ws, e.data));
+        ws.addEventListener("close", () => this.dropped(ws));
+        ws.addEventListener("error", () => this.dropped(ws));
+        this.sendJoined(ws);
         this.broadcastState();
     }
 
-    leave(ws: WebSocket, seat: Player | null) {
+    /** Which seat this socket holds right now, if any. */
+    seatOf(ws: WebSocket): Player | null {
+        const i = this.seats.findIndex(s => s !== null && s.ws === ws);
+        return i === -1 ? null : (i as Player);
+    }
+
+    sendJoined(ws: WebSocket) {
+        const seat = this.seatOf(ws);
+        this.send(ws, seat === null ? { type: "joined", seat } : { type: "joined", seat, token: this.seats[seat]!.token });
+    }
+
+    /** A socket went away. A player keeps their seat for GRACE_MS in case they come back. */
+    dropped(ws: WebSocket) {
         if (!this.sockets.delete(ws)) return;
-        if (seat !== null && this.seats[seat] === ws) {
-            this.seats[seat] = null;
-            this.state = initialState();  // a player left: start over
+        const seat = this.seatOf(ws);
+        if (seat === null) return;  // a spectator, or a seat that already moved to a newer socket
+        const s = this.seats[seat]!;
+        s.ws = null;
+        s.timer = setTimeout(() => this.vacate(seat), GRACE_MS);
+    }
+
+    /** Free a seat and start over; a spectator who was waiting takes the seat. */
+    vacate(seat: Player) {
+        const s = this.seats[seat];
+        if (s === null) return;
+        if (s.timer !== undefined) clearTimeout(s.timer);
+        this.seats[seat] = null;
+        this.state = initialState();  // a player left: start over
+        const waiting = [...this.sockets].find(w => this.seatOf(w) === null);
+        if (waiting) {
+            this.seats[seat] = { ws: waiting, token: crypto.randomUUID() };
+            this.sendJoined(waiting);
         }
         this.broadcastState();
     }
 
-    onMessage(seat: Player | null, data: unknown) {
+    onMessage(ws: WebSocket, data: unknown) {
+        const seat = this.seatOf(ws);
         if (seat === null) return;  // spectators can't act
         if (typeof data !== "string" || data.length > MAX_MESSAGE) return;
         this.touch();
@@ -164,10 +211,16 @@ export class Game extends DurableObject<Env> {
             this.state = initialState(this.state.starter);
             this.broadcastState();
         }
+
+        if (msg.type === "leave") {
+            this.sockets.delete(ws);
+            ws.close(1000, "left");
+            this.vacate(seat);
+        }
     }
 
     send(ws: WebSocket, msg: ServerMessage) {
-        ws.send(JSON.stringify(msg));
+        try { ws.send(JSON.stringify(msg)); } catch { /* already gone */ }
     }
 
     broadcast(msg: ServerMessage) {
@@ -175,7 +228,7 @@ export class Game extends DurableObject<Env> {
     }
 
     broadcastState() {
-        const players = this.seats.filter(Boolean).length;
+        const players = this.seats.filter(Boolean).length;  // a seat held through the grace period still counts
         this.broadcast({ type: "state", state: this.state, wins: this.wins, players });
     }
 }
