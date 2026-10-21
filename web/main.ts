@@ -6,8 +6,8 @@ const WS_URL: string = import.meta.env.VITE_WS_URL ?? "ws://localhost:8787";  //
 const gameId = new URLSearchParams(location.search).get("game");
 
 const boardEl = document.querySelector<HTMLElement>("#board")!;
-const messageEl = document.querySelector("#message")!;
-const controlsEl = document.querySelector("#controls")!;
+const messageEl = document.querySelector<HTMLElement>("#message")!;
+const controlsEl = document.querySelector<HTMLElement>("#controls")!;
 const winsEl = document.querySelector<HTMLElement>("#wins")!;
 const menuEl = document.querySelector<HTMLElement>("#menu")!;
 const modeEl = document.querySelector<HTMLSelectElement>("#mode")!;
@@ -236,7 +236,7 @@ function connectLobby() {
 /** Show the online options only in online mode. Also run at startup, since Chrome may restore the last choice. */
 function syncMode() {
     onlineEl.hidden = modeEl.value !== "online";
-    boardEl.hidden = winsEl.hidden = !onlineEl.hidden;  // nothing to play until in a room
+    boardEl.hidden = messageEl.hidden = winsEl.hidden = controlsEl.hidden = !onlineEl.hidden;  // nothing to play until in a room
     refresh();
 }
 modeEl.onchange = syncMode;
