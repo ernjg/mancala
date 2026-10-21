@@ -4,33 +4,85 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>mancala</title>
-    <style>body { max-width: 30em; margin: auto; padding: 0 1em; } h1, footer { margin: 2em 0; } #board { width: 100%; table-layout: fixed; } #board button { font-size: 1.5rem; width: 100%; } fieldset { width: fit-content; } #wins tr:first-child td { text-decoration: underline; } #wins td:first-child { padding-right: 1em; }</style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root { --ink: #1D1F1E; --gray: #6C706D; --rule: #C8C9C3; --paper: #FFFFFF; }
+        body {
+            max-width: 30em; margin: 0 auto; padding: 2rem 1rem 3rem; text-align: center;
+            font: 400 15px/1.55 "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+            color: var(--ink); background: var(--paper);
+        }
+        [hidden] { display: none !important; }
+        h1 { font-size: inherit; font-weight: 500; margin: 0 0 1.5em; }
+        .small { font-size: 13px; color: var(--gray); }
+
+        /* actions and links: underlined text */
+        .action, a {
+            font: inherit; background: none; border: 0; padding: 0; color: var(--ink); cursor: pointer;
+            text-decoration: underline; text-decoration-color: var(--rule); text-underline-offset: 3px;
+        }
+        .action:hover, a:hover { text-decoration-color: var(--ink); }
+        .action:disabled { color: var(--gray); cursor: default; text-decoration-color: var(--rule); }
+        footer { margin-top: 4em; font-size: 13px; }
+        footer a { color: var(--gray); }
+
+        /* mode: [local] bot online */
+        #menu { display: flex; justify-content: center; gap: 2ch; }
+        .mode { font: inherit; font-size: 13px; color: var(--gray); background: none; border: 0; padding: 0; cursor: pointer; }
+        .mode[aria-pressed="true"] { color: var(--ink); }
+        .mode[aria-pressed="true"]::before { content: "["; }
+        .mode[aria-pressed="true"]::after { content: "]"; }
+
+        /* lobby and room rows */
+        #online p, #online form, #room { display: flex; justify-content: center; align-items: center; gap: 2ch; margin: 1em 0; }
+        #online label { color: var(--gray); }
+        #code {
+            font: inherit; width: 7ch; padding: 1px 1ch; color: var(--ink); background: var(--paper);
+            border: 1px solid var(--rule); border-radius: 0; text-transform: uppercase; letter-spacing: .1em;
+        }
+        #code::placeholder { text-transform: lowercase; letter-spacing: 0; color: var(--rule); }
+        #code:focus { outline: none; border-color: var(--ink); }
+
+        /* board */
+        #board { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 6px; align-items: center; margin-top: 1.5em; }
+        #board button {
+            font: inherit; font-size: 1.125rem; font-variant-numeric: tabular-nums; min-height: 4rem;
+            background: none; border: 1px solid var(--ink); border-radius: 0; color: inherit; padding: 0;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+        }
+        #board .store { font-size: 1.5rem; grid-row: span 2; align-self: stretch; }
+        #board button:disabled:not(.store) { border-color: var(--rule); opacity: .6; }
+        #board button:not(:disabled) { cursor: pointer; }
+        #board button:not(:disabled):hover { border-width: 2px; }
+        #board .active { outline: 2px solid var(--ink); outline-offset: 1px; opacity: 1; }
+        .dots { display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; width: 28px; }
+        .store .dots { width: 36px; }
+        .dots i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+
+        #message { margin: 1.2em 0 0; min-height: 1.55em; }
+        #wins { margin: .5em 0; }
+        #controls { margin: .5em 0; }
+    </style>
 </head>
 <body>
     <h1>just mancala.</h1>
-    <div id="menu">
-        <p>mode: <select id="mode">
-            <option value="local">local</option>
-            <option value="bot">bot</option>
-            <option value="online">online</option>
-        </select></p>
-        <div id="online" hidden>
-            <fieldset>
-                <legend id="summary">random opponent</legend>
-                <button id="random">play random</button>
-            </fieldset>
-            <fieldset>
-                <legend>private room</legend>
-                <p><button id="make">make room</button></p>
-                <p>join room: <input id="code" size="4" maxlength="4"> <button id="join">join</button></p>
-            </fieldset>
-        </div>
+    <nav id="menu">
+        <button class="mode" data-mode="local" aria-pressed="true">local</button>
+        <button class="mode" data-mode="bot" aria-pressed="false">bot</button>
+        <button class="mode" data-mode="online" aria-pressed="false">online</button>
+    </nav>
+    <div id="online" hidden>
+        <p><span><button id="random" class="action">random opponent</button> <span id="count" class="small"></span></span> <button id="make" class="action">make room</button></p>
+        <form id="joinForm"><label for="code">join a room:</label> <input id="code" placeholder="code" maxlength="4" autocomplete="off" spellcheck="false"> <button class="action">join</button></form>
     </div>
-    <table id="board"></table>
-    <p id="message"></p>
-    <table id="wins"></table>
+    <p id="room" hidden></p>
+    <div id="board"></div>
+    <p id="message" aria-live="polite"></p>
+    <p id="wins" class="small"></p>
     <p id="controls"></p>
-    <footer><a href="https://ejgomez.com/">ejgomez.com</a> · <a href="https://en.wikipedia.org/wiki/Kalah">rules</a></footer>
+    <footer><a href="https://ejgomez.com/">ejgomez.com</a> · <a href="https://mancala.fandom.com/wiki/Kalah">rules</a></footer>
     <script type="module" src="/main.ts"></script>
 </body>
 </html>

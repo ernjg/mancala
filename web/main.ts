@@ -1,4 +1,4 @@
-import { applyMove, initialState, isGameOver, legalMoves, other, pitsOf, storeOf, winnerOf, type Player, type State, type Step } from "../rules/rules.ts";
+import { applyMove, initialState, isGameOver, legalMoves, other, ownerOf, pitsOf, storeOf, winnerOf, type Player, type State, type Step } from "../rules/rules.ts";
 import { bestMove } from "../rules/ai.ts";
 import { newRoomCode, type ClientMessage, type LobbyClientMessage, type LobbyServerMessage, type ServerMessage } from "../server/protocol.ts";
 
@@ -6,17 +6,21 @@ const STEP_MS = 350;
 const WS_URL: string = import.meta.env.VITE_WS_URL ?? "ws://localhost:8787";  // wrangler dev
 const gameId = new URLSearchParams(location.search).get("game");
 
+type Mode = "local" | "bot" | "online";
+
 const boardEl = document.querySelector<HTMLElement>("#board")!;
 const messageEl = document.querySelector<HTMLElement>("#message")!;
 const controlsEl = document.querySelector<HTMLElement>("#controls")!;
 const winsEl = document.querySelector<HTMLElement>("#wins")!;
 const menuEl = document.querySelector<HTMLElement>("#menu")!;
-const modeEl = document.querySelector<HTMLSelectElement>("#mode")!;
+const modeEls = [...document.querySelectorAll<HTMLButtonElement>(".mode")];
 const onlineEl = document.querySelector<HTMLElement>("#online")!;
+const roomEl = document.querySelector<HTMLElement>("#room")!;
 const codeEl = document.querySelector<HTMLInputElement>("#code")!;
-const summaryEl = document.querySelector<HTMLElement>("#summary")!;
+const countEl = document.querySelector<HTMLElement>("#count")!;
 const randomEl = document.querySelector<HTMLButtonElement>("#random")!;
 
+let mode: Mode = "local";
 let state: State = initialState();
 let busy = false;
 let wins: [number, number] = [0, 0];
@@ -35,35 +39,42 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 // they match, but they are never playable so they stay disabled.
 
 const cells: HTMLButtonElement[] = [];
+const isStore = (i: number) => i === storeOf(0) || i === storeOf(1);
 
-function cell(index: number, rowSpan = 1) {
+function cell(index: number) {
     const b = document.createElement("button");
+    b.classList.toggle("store", isStore(index));
     b.onclick = () => socket ? send({ type: "move", pit: index }) : play(index);
+    const count = document.createElement("span");
+    count.className = "n";
+    const dots = document.createElement("span");
+    dots.className = "dots";
+    b.append(count, dots);
     cells[index] = b;
-    const td = document.createElement("td");
-    td.rowSpan = rowSpan;
-    td.append(b);
-    return td;
+    return b;
 }
 
+/** Grid order: opponent's store, opponent's pits right to left, my store, then my pits left to right. */
 function buildBoard(me: Player) {
-    const top = document.createElement("tr");
-    top.append(cell(storeOf(other(me)), 2), ...pitsOf(other(me)).reverse().map(i => cell(i)), cell(storeOf(me), 2));
-    const bottom = document.createElement("tr");
-    bottom.append(...pitsOf(me).map(i => cell(i)));
-    boardEl.replaceChildren(top, bottom);
+    boardEl.replaceChildren(
+        cell(storeOf(other(me))), ...pitsOf(other(me)).reverse().map(i => cell(i)),
+        cell(storeOf(me)), ...pitsOf(me).map(i => cell(i)),
+    );
 }
 
 // ---------- rendering ----------
 
-/** Show seed counts; only pits in `playable` are clickable. */
-function show(board: number[], playable: number[] = []) {
+/** Show seed counts; only pits in `playable` are clickable; `active` is outlined. */
+function show(board: number[], playable: number[] = [], active?: number) {
     board.forEach((seeds, i) => {
         const b = cells[i]!;
-        b.textContent = String(seeds);
+        const store = isStore(i);
+        b.querySelector(".n")!.textContent = String(seeds);
+        const dots = Array.from({ length: Math.min(seeds, store ? 48 : 12) }, () => document.createElement("i"));
+        b.querySelector(".dots")!.replaceChildren(...dots);
         b.disabled = !playable.includes(i);
-        const t = Math.min(seeds, 12);
-        b.style.color = `hsl(${240 + t * 15} 100% ${45 - t}%)`;
+        b.classList.toggle("active", i === active);
+        b.setAttribute("aria-label", store ? `${storeName(ownerOf(i))}: ${seeds}` : `pit: ${seeds}`);
     });
 }
 
@@ -71,25 +82,29 @@ function show(board: number[], playable: number[] = []) {
 function playable(): number[] {
     if (busy) return [];
     if (socket && state.turn !== seat) return [];
-    if (!socket && modeEl.value === "online") return [];  // picking an online option; the local board waits
+    if (!socket && mode === "online") return [];  // picking an online option; the local board waits
     if (botsTurn()) return [];
     return legalMoves(state);
 }
 
 /** In bot mode the bot plays the top side. */
 function botsTurn(): boolean {
-    return !socket && modeEl.value === "bot" && state.turn === 1 && !isGameOver(state);
+    return !socket && mode === "bot" && state.turn === 1 && !isGameOver(state);
 }
 
 /** What to call a player from this screen's point of view. */
 function name(p: Player): string {
     if (socket && seat !== null) return p === seat ? "you" : "opponent";
-    if (!socket && modeEl.value === "bot") return p === 0 ? "you" : "bot";
-    return p === 0 ? "bottom" : "top";
+    if (!socket && mode === "bot") return p === 0 ? "you" : "bot";
+    return p === 0 ? "south" : "north";
 }
 
 function turnText(p: Player): string {
     return name(p) === "you" ? "your turn" : `${name(p)}'s turn`;
+}
+
+function storeName(p: Player): string {
+    return name(p) === "you" ? "your store" : `${name(p)} store`;
 }
 
 /** Message for a step, or undefined to leave the previous message up. */
@@ -103,39 +118,51 @@ function describe(step: Step): string | undefined {
     }
 }
 
-function scoreRow(label: string, value: string) {
-    const tr = document.createElement("tr");
-    for (const text of [label, value]) {
-        const td = document.createElement("td");
-        td.textContent = text;
-        tr.append(td);
+/** The cell a step touches, for the outline. */
+function touched(step: Step): number | undefined {
+    switch (step.kind) {
+        case "pickup": case "sow":     return step.pit;
+        case "capture": case "sweep":  return step.to;
+        default:                       return undefined;
     }
-    return tr;
 }
 
 function button(label: string, onClick: () => void) {
     const b = document.createElement("button");
+    b.className = "action";
     b.textContent = label;
     b.onclick = onClick;
     return b;
 }
 
+function small(text: string) {
+    const s = document.createElement("span");
+    s.className = "small";
+    s.textContent = text;
+    return s;
+}
+
 function refresh() {
     show(state.board, playable());
     const me: Player = seat ?? 0;
-    winsEl.replaceChildren(scoreRow("wins", ""), scoreRow(name(me), String(wins[me])), scoreRow(name(other(me)), String(wins[other(me)])));
+    winsEl.textContent = `${name(me)} ${wins[me]} · ${name(other(me))} ${wins[other(me)]}`;
     controlsEl.replaceChildren();
     if (!socket || (seat !== null && isGameOver(state))) controlsEl.append(button("new game", newGame));
-    if (socket && players < 2) {
-        const copy = button("copy link", () => {
-            navigator.clipboard.writeText(location.href).then(() => {
-                copy.textContent = "copied";
-                setTimeout(() => { copy.textContent = "copy link"; }, 1500);
+    if (socket) {
+        const label = document.createElement("span");
+        label.append(small("room"), ` ${gameId}`);
+        roomEl.replaceChildren(label);
+        if (players < 2) {
+            const copy = button("copy link", () => {
+                navigator.clipboard.writeText(location.href).then(() => {
+                    copy.textContent = "copied";
+                    setTimeout(() => { copy.textContent = "copy link"; }, 1500);
+                });
             });
-        });
-        controlsEl.append(copy, " ");
+            roomEl.append(copy);
+        }
+        roomEl.append(button("leave", () => { location.href = location.pathname; }));
     }
-    if (socket) controlsEl.append(button("leave", () => { location.href = location.pathname; }));
 }
 
 // ---------- actions ----------
@@ -145,7 +172,7 @@ async function play(pit: number) {
     busy = true;
     const result = applyMove(state, pit);
     for (const step of result.steps) {
-        show(step.board);
+        show(step.board, [], touched(step));
         const text = describe(step);
         if (text !== undefined) messageEl.textContent = text;
         await sleep(STEP_MS);
@@ -193,7 +220,7 @@ async function handle(msg: ServerMessage) {
             wins = msg.wins;
             players = msg.players;
             messageEl.textContent =
-                players < 2 ? `room ${gameId}, waiting for an opponent`
+                players < 2 ? "waiting for an opponent"
                 : isGameOver(state) ? "game over"
                 : turnText(state.turn);
             refresh();
@@ -206,6 +233,7 @@ async function handle(msg: ServerMessage) {
 
 function connect(game: string) {
     menuEl.hidden = true;
+    roomEl.hidden = false;
     socket = new WebSocket(`${WS_URL}/${game}`);
     // Messages are handled one at a time so a snapshot never lands mid-animation.
     let queue = Promise.resolve();
@@ -220,8 +248,7 @@ function connect(game: string) {
 }
 
 document.querySelector<HTMLButtonElement>("#make")!.onclick = () => joinRoom(newRoomCode());
-document.querySelector<HTMLButtonElement>("#join")!.onclick = () => joinRoom(codeEl.value);
-codeEl.onkeydown = e => { if (e.key === "Enter") joinRoom(codeEl.value); };
+document.querySelector<HTMLFormElement>("#joinForm")!.onsubmit = e => { e.preventDefault(); joinRoom(codeEl.value); };
 
 /** On the front page: show how many people are here and let them find a random opponent. */
 function connectLobby() {
@@ -234,24 +261,31 @@ function connectLobby() {
     };
     lobby.onmessage = e => {
         const msg: LobbyServerMessage = JSON.parse(e.data);
-        if (msg.type === "online") summaryEl.textContent = `random opponent (${msg.count} online)`;
+        if (msg.type === "online") countEl.textContent = `${msg.count} online`;
         if (msg.type === "match") joinRoom(msg.game);
     };
     lobby.onclose = () => {
-        summaryEl.textContent = "random opponent";
+        countEl.textContent = "";
         randomEl.disabled = true;
     };
 }
 
-/** Show the online options only in online mode. Also run at startup, since Chrome may restore the last choice. */
+/** Mark the chosen mode and show the online options only in online mode. */
 function syncMode() {
-    onlineEl.hidden = modeEl.value !== "online";
+    for (const b of modeEls) b.setAttribute("aria-pressed", String(b.dataset["mode"] === mode));
+    onlineEl.hidden = mode !== "online";
     boardEl.hidden = messageEl.hidden = winsEl.hidden = controlsEl.hidden = !onlineEl.hidden;  // nothing to play until in a room
     if (!socket && !busy && !isGameOver(state)) messageEl.textContent = turnText(state.turn);  // names depend on the mode
     refresh();
     if (botsTurn() && !busy) void play(bestMove(state));
 }
-modeEl.onchange = () => { if (!busy) state = initialState(); syncMode(); };  // a new mode starts a new game
+for (const b of modeEls) {
+    b.onclick = () => {  // a new mode starts a new game
+        mode = b.dataset["mode"] as Mode;
+        if (!busy) state = initialState();
+        syncMode();
+    };
+}
 
 buildBoard(0);
 if (gameId) {
