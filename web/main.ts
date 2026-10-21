@@ -5,10 +5,10 @@ const STEP_MS = 350;
 const WS_URL: string = import.meta.env.VITE_WS_URL ?? "ws://localhost:8787";  // wrangler dev
 const gameId = new URLSearchParams(location.search).get("game");
 
-const boardEl = document.querySelector("#board")!;
+const boardEl = document.querySelector<HTMLElement>("#board")!;
 const messageEl = document.querySelector("#message")!;
 const controlsEl = document.querySelector("#controls")!;
-const winsEl = document.querySelector("#wins")!;
+const winsEl = document.querySelector<HTMLElement>("#wins")!;
 const menuEl = document.querySelector<HTMLElement>("#menu")!;
 const modeEl = document.querySelector<HTMLSelectElement>("#mode")!;
 const onlineEl = document.querySelector<HTMLElement>("#online")!;
@@ -236,6 +236,7 @@ function connectLobby() {
 /** Show the online options only in online mode. Also run at startup, since Chrome may restore the last choice. */
 function syncMode() {
     onlineEl.hidden = modeEl.value !== "online";
+    boardEl.hidden = winsEl.hidden = !onlineEl.hidden;  // nothing to play until in a room
     refresh();
 }
 modeEl.onchange = syncMode;
