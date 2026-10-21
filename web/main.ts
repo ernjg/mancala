@@ -251,7 +251,7 @@ function syncMode() {
     refresh();
     if (botsTurn() && !busy) void play(bestMove(state));
 }
-modeEl.onchange = syncMode;
+modeEl.onchange = () => { if (!busy) state = initialState(); syncMode(); };  // a new mode starts a new game
 
 buildBoard(0);
 if (gameId) {
