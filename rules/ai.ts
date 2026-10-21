@@ -1,6 +1,6 @@
 import { applyMove, isGameOver, legalMoves, other, storeOf, type Player, type State } from "./rules.ts";
 
-const DEPTH = 8;
+const DEPTH = 4;
 
 /** Pick a move for whoever is to play: minimax with alpha-beta on the store difference. */
 export function bestMove(state: State, depth = DEPTH): number {
