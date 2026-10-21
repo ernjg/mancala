@@ -102,8 +102,9 @@ function refresh() {
                 setTimeout(() => { copy.textContent = "copy link"; }, 1500);
             });
         });
-        controlsEl.append(copy);
+        controlsEl.append(copy, " ");
     }
+    if (socket) controlsEl.append(button("leave", () => { location.href = location.pathname; }));
 }
 
 // ---------- actions ----------
