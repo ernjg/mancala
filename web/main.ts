@@ -1,4 +1,5 @@
 import { applyMove, initialState, isGameOver, legalMoves, other, pitsOf, storeOf, winnerOf, type Player, type State, type Step } from "../rules/rules.ts";
+import { bestMove } from "../rules/ai.ts";
 import { newRoomCode, type ClientMessage, type LobbyClientMessage, type LobbyServerMessage, type ServerMessage } from "../server/protocol.ts";
 
 const STEP_MS = 350;
@@ -70,13 +71,20 @@ function show(board: number[], playable: number[] = []) {
 function playable(): number[] {
     if (busy) return [];
     if (socket && state.turn !== seat) return [];
-    if (!socket && modeEl.value !== "local") return [];  // picking an online option; the local board waits
+    if (!socket && modeEl.value === "online") return [];  // picking an online option; the local board waits
+    if (botsTurn()) return [];
     return legalMoves(state);
+}
+
+/** In bot mode the bot plays the top side. */
+function botsTurn(): boolean {
+    return !socket && modeEl.value === "bot" && state.turn === 1 && !isGameOver(state);
 }
 
 /** What to call a player from this screen's point of view. */
 function name(p: Player): string {
     if (socket && seat !== null) return p === seat ? "you" : "opponent";
+    if (!socket && modeEl.value === "bot") return p === 0 ? "you" : "bot";
     return p === 0 ? "bottom" : "top";
 }
 
@@ -149,6 +157,7 @@ async function play(pit: number) {
         if (winner !== null) wins[winner]++;
     }
     refresh();
+    if (botsTurn()) void play(bestMove(state));
 }
 
 function newGame() {
@@ -159,6 +168,7 @@ function newGame() {
     state = initialState(state.starter);
     messageEl.textContent = turnText(state.turn);
     refresh();
+    if (botsTurn()) void play(bestMove(state));
 }
 
 // ---------- online ----------
@@ -237,7 +247,9 @@ function connectLobby() {
 function syncMode() {
     onlineEl.hidden = modeEl.value !== "online";
     boardEl.hidden = messageEl.hidden = winsEl.hidden = controlsEl.hidden = !onlineEl.hidden;  // nothing to play until in a room
+    if (!socket && !busy && !isGameOver(state)) messageEl.textContent = turnText(state.turn);  // names depend on the mode
     refresh();
+    if (botsTurn() && !busy) void play(bestMove(state));
 }
 modeEl.onchange = syncMode;
 
