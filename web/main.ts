@@ -1,4 +1,4 @@
-import { applyMove, describeStep, initialState, isGameOver, legalMoves, other, pitsOf, storeOf, winnerOf, type Player, type State, type Step } from "../rules/rules.ts";
+import { applyMove, initialState, isGameOver, legalMoves, other, pitsOf, storeOf, winnerOf, type Player, type State, type Step } from "../rules/rules.ts";
 import { newRoomCode, type ClientMessage, type LobbyClientMessage, type LobbyServerMessage, type ServerMessage } from "../server/protocol.ts";
 
 const STEP_MS = 350;
@@ -10,6 +10,8 @@ const messageEl = document.querySelector("#message")!;
 const controlsEl = document.querySelector("#controls")!;
 const winsEl = document.querySelector("#wins")!;
 const menuEl = document.querySelector<HTMLElement>("#menu")!;
+const modeEl = document.querySelector<HTMLSelectElement>("#mode")!;
+const onlineEl = document.querySelector<HTMLElement>("#online")!;
 const codeEl = document.querySelector<HTMLInputElement>("#code")!;
 const summaryEl = document.querySelector<HTMLElement>("#summary")!;
 const randomEl = document.querySelector<HTMLButtonElement>("#random")!;
@@ -68,7 +70,18 @@ function show(board: number[], playable: number[] = []) {
 function playable(): number[] {
     if (busy) return [];
     if (socket && state.turn !== seat) return [];
+    if (!socket && modeEl.value !== "local") return [];  // picking an online option; the local board waits
     return legalMoves(state);
+}
+
+/** What to call a player from this screen's point of view. */
+function name(p: Player): string {
+    if (socket && seat !== null) return p === seat ? "you" : "opponent";
+    return p === 0 ? "bottom" : "top";
+}
+
+function turnText(p: Player): string {
+    return name(p) === "you" ? "your turn" : `${name(p)}'s turn`;
 }
 
 /** Message for a step, or undefined to leave the previous message up. */
@@ -76,10 +89,20 @@ function describe(step: Step): string | undefined {
     switch (step.kind) {
         case "pickup":   return "";
         case "capture":  return `captured ${step.seeds}`;
-        case "turn":     return describeStep(step);
-        case "gameOver": return describeStep(step);
+        case "turn":     return step.extraTurn ? `extra turn for ${name(step.next)}` : turnText(step.next);
+        case "gameOver": return step.winner === null ? "draw" : name(step.winner) === "you" ? "you win" : `${name(step.winner)} wins`;
         default:         return undefined;
     }
+}
+
+function scoreRow(label: string, value: string) {
+    const tr = document.createElement("tr");
+    for (const text of [label, value]) {
+        const td = document.createElement("td");
+        td.textContent = text;
+        tr.append(td);
+    }
+    return tr;
 }
 
 function button(label: string, onClick: () => void) {
@@ -91,8 +114,8 @@ function button(label: string, onClick: () => void) {
 
 function refresh() {
     show(state.board, playable());
-    const you = (p: Player) => socket && p === seat ? " (you)" : "";
-    winsEl.textContent = `wins: player 0${you(0)} ${wins[0]}, player 1${you(1)} ${wins[1]}`;
+    const me: Player = seat ?? 0;
+    winsEl.replaceChildren(scoreRow("wins", ""), scoreRow(name(me), String(wins[me])), scoreRow(name(other(me)), String(wins[other(me)])));
     controlsEl.replaceChildren();
     if (isGameOver(state) && (!socket || seat !== null)) controlsEl.append(button("new game", newGame));
     if (socket && players < 2) {
@@ -134,7 +157,7 @@ function newGame() {
         return;
     }
     state = initialState(state.starter);
-    messageEl.textContent = `player ${state.turn} to move`;
+    messageEl.textContent = turnText(state.turn);
     refresh();
 }
 
@@ -162,7 +185,7 @@ async function handle(msg: ServerMessage) {
             messageEl.textContent =
                 players < 2 ? `room ${gameId}, waiting for an opponent`
                 : isGameOver(state) ? "game over"
-                : `player ${state.turn} to move`;
+                : turnText(state.turn);
             refresh();
             break;
         case "move":
@@ -201,20 +224,27 @@ function connectLobby() {
     };
     lobby.onmessage = e => {
         const msg: LobbyServerMessage = JSON.parse(e.data);
-        if (msg.type === "online") summaryEl.textContent = `play online (${msg.count} online)`;
+        if (msg.type === "online") summaryEl.textContent = `random opponent (${msg.count} online)`;
         if (msg.type === "match") joinRoom(msg.game);
     };
     lobby.onclose = () => {
-        summaryEl.textContent = "play online";
+        summaryEl.textContent = "random opponent";
         randomEl.disabled = true;
     };
 }
+
+/** Show the online options only in online mode. Also run at startup, since Chrome may restore the last choice. */
+function syncMode() {
+    onlineEl.hidden = modeEl.value !== "online";
+    refresh();
+}
+modeEl.onchange = syncMode;
 
 buildBoard(0);
 if (gameId) {
     connect(gameId);
 } else {
     connectLobby();
-    messageEl.textContent = `player ${state.turn} to move`;
-    refresh();
+    messageEl.textContent = turnText(state.turn);
+    syncMode();
 }

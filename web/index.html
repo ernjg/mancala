@@ -8,20 +8,26 @@
 <body>
     <table id="board"></table>
     <p id="message"></p>
-    <p id="wins"></p>
+    <table id="wins"></table>
     <p id="controls"></p>
-    <details id="menu">
-        <summary id="summary">play online</summary>
-        <fieldset>
-            <legend>random opponent</legend>
-            <button id="random">play random</button>
-        </fieldset>
-        <fieldset>
-            <legend>private room</legend>
-            <p><button id="make">make room</button></p>
-            <p>join room: <input id="code" size="4" maxlength="4"> <button id="join">join</button></p>
-        </fieldset>
-    </details>
+    <div id="menu">
+        <p>mode: <select id="mode">
+            <option value="local">local</option>
+            <option value="bot" disabled>bot</option>
+            <option value="online">online</option>
+        </select></p>
+        <div id="online" hidden>
+            <fieldset>
+                <legend id="summary">random opponent</legend>
+                <button id="random">play random</button>
+            </fieldset>
+            <fieldset>
+                <legend>private room</legend>
+                <p><button id="make">make room</button></p>
+                <p>join room: <input id="code" size="4" maxlength="4"> <button id="join">join</button></p>
+            </fieldset>
+        </div>
+    </div>
     <p><a href="https://ejgomez.com/">ejgomez.com</a></p>
     <script type="module" src="/main.ts"></script>
 </body>
